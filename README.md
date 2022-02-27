@@ -1,31 +1,32 @@
-#!/usr/bin/python3
-import RPi.GPIO as GPIO
-import spidev
-import crcmod
-import struct
-import time
-from IPython import embed
+odri-spi-rpi
+--------
+Python code to access ODRI (Open Dynamic Robot Initiative) brushless drivers using directly SPI from a raspberry pi board.
 
-dt = 0.1
-spi = spidev.SpiDev()
-spi.open(0, 0)
-spi.mode=0
-spi.max_speed_hz = 80000
+Activate SPI on raspberry pi using the raspi-config utility:
+```
+sudo raspi-config
+```
 
- 
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(25,GPIO.OUT)
-GPIO.output(25,0)
-t = time.perf_counter()
-while True:
-    t +=dt
-    #t =time.perf_counter()  
-    GPIO.output(25,0) 
-    res = spi.xfer([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00])
-    print(res)
-    
-    GPIO.output(25,1)
-    while(time.perf_counter()-t<dt):
-        pass
+Connect RPi to uDriver according to this table:
 
-    #embed()
+|  Signal | uDriver pin  |  Rpi 40 pin | Color |
+|---      |---           |---          |---      |
+| GND     |  1           |  20         | Black   |
+| MISO    |  2           |  21         | White   |
+| CLK     |  3           |  23         | Grey    |
+| CS      |  4           |  22         | Violet  | 
+| MOSI    |  5           |  19         | Blue    |
+
+![image](https://user-images.githubusercontent.com/11156435/155493434-af1ef2a7-833c-4db4-8dcb-d61be97fca1c.png)
+
+Authors
+--------
+Thomas Flayols  
+
+License
+-------
+BSD 3-Clause License
+
+Copyright
+-----------
+Copyright (c) 2022, LAAS-CNRS
