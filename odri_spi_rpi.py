@@ -81,7 +81,7 @@ class SPIuDriver:
         time.sleep(0.001)
     print(">> Waiting for index pulse to have absolute position reference, please move the motor manualy")    
     if absolutePositionMode:
-      while(not self.has_index_been_detected0):
+      while(not self.has_index_been_detected0 or not self.has_index_been_detected1):
         self.transfer()
         time.sleep(0.001)
     print ("ready!")
@@ -90,7 +90,7 @@ class SPIuDriver:
     #generate command packet
     ES = 1
     EM1 = 1	
-    EM2	= 0
+    EM2	= 1
     EPRE = 0
     EI1OC = self.EI1OC
     EI2OC	= self.EI2OC
@@ -140,9 +140,31 @@ class SPIuDriver:
       #print("velocity =", self.velocity0)
       #print("cur =", self.current0)
     else:
-        print("Error: sensor frame is corrupted")
+        raise(Exception(f"Error: sensor frame is corrupted is uDriver powered on?"))
     if (self.error!=0):
         raise(Exception(f"Error from motor driver: Error {self.error}"))
+        
+  def goto(self,p0,p1):
+        p0_start = self.position0
+        p1_start = self.position1
+        eps = 0.01
+        dt=0.001
+        T=1000
+        t = time.perf_counter()
+        for i in range(T):
+            goalPosition0 = (i/T) * p0 + (1 - i/T) * p0_start
+            goalPosition1 = (i/T) * p1 + (1 - i/T) * p1_start
+            self.transfer() #transfer 
+            self.refCurrent0 = 1.0*(goalPosition0-self.position0)-0.1*self.velocity0
+            self.refCurrent1 = 1.0*(goalPosition1-self.position1)-0.1*self.velocity1
+            #wait for next control cycle
+            t +=dt 
+            while(time.perf_counter()-t<dt):
+                pass
+    def stop():
+        pass
+        #todo stop the robot cleanly (send 0 ref, disable timeout)
+
 class PID:
     def __init__(self,Kp,Ki,Kd, sat = 2.0, dt=0.001):
         self.Kp=Kp
@@ -168,3 +190,6 @@ class PID:
         return self.u
 
 
+    
+    
+    
