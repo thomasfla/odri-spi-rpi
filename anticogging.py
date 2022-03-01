@@ -3,14 +3,13 @@
 import time
 from IPython import embed
 from odri_spi_rpi import *
-import time
 import numpy as np
 dt = 0.001                         
-ud = SPIuDriver()
+ud = SPIuDriver(absolutePositionMode=True)
 ud.transfer()
 t = time.perf_counter()
 goalPosition = 0.0
-N=80000
+N=500000
 i=0
 log_p = np.empty(N) * np.nan
 log_pref = np.empty(N) * np.nan
@@ -20,7 +19,9 @@ log_i_filt = np.empty(N) * np.nan
 log_i_filt[-1] = 0
 coggingTorque = []
 coggingPosition = []
-myPID = PID(Kp = 17.0, Ki = 500.0, Kd = 0.10, sat=5)
+
+myPID = PID(Kp = 15.0, Ki = 800.0, Kd = 0*0.10, sat=5)
+ud.kd0= 0.2 #set the kd in low level for higher bandwith
 a=0.99
 while (goalPosition<2*pi and i<N):
     if (i%200==0):
@@ -53,4 +54,10 @@ plt.plot(log_iref,log_p)
 plt.figure()
 plt.plot(coggingPosition,coggingTorque,'x')
 plt.show()
+pos=np.array(coggingPosition)
+cur=np.array(coggingTorque)
+np.savez("cogging_map.npz",pos,cur)
+
+
+
 embed()

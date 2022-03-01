@@ -25,7 +25,7 @@ def checkcrc(buf):
   return False
 
 class SPIuDriver:
-  def __init__(self, waitForInit = True):
+  def __init__(self, waitForInit = True, absolutePositionMode = False):
     
     #Configure CS pin
     GPIO.setmode(GPIO.BCM)
@@ -57,6 +57,8 @@ class SPIuDriver:
     self.index_toggle_bit1 = 0
     
 
+    self.EI1OC = 1 if absolutePositionMode else 0
+    self.EI2OC = 1 if absolutePositionMode else 0
     self.refPosition0 = 0
     self.refPosition1= 0
     self.refVelocity0= 0
@@ -73,7 +75,13 @@ class SPIuDriver:
     self.error = -1
     #wait for system enable
     if waitForInit:
+      print(">> Calibrating motor, please wait")
       while(not self.is_ready0):
+        self.transfer()
+        time.sleep(0.001)
+    print(">> Waiting for index pulse to have absolute position reference, please move the motor manualy")    
+    if absolutePositionMode:
+      while(not self.has_index_been_detected0):
         self.transfer()
         time.sleep(0.001)
     print ("ready!")
@@ -84,8 +92,8 @@ class SPIuDriver:
     EM1 = 1	
     EM2	= 0
     EPRE = 0
-    EI1OC = 0
-    EI2OC	= 0
+    EI1OC = self.EI1OC
+    EI2OC	= self.EI2OC
     mode = (ES << 7) | (EM1 << 6) | (EM2<<5)|(EPRE<<4)|(EI1OC<<3)|(EI2OC<<2)
     timeout = 5
     rawRefPos0 = int(self.refPosition0*(1<<24))
@@ -114,11 +122,14 @@ class SPIuDriver:
     if checkcrc(sensorPacket):
     #decode received sensor packet
       data = struct.unpack(">H H i i h h h h xxxxxxxxxxxxxx",sensorPacket)
-      self.is_system_enabled = data[0]&0b1000000000000000 != 0
-      self.is_enabled0       = data[0]&0b0100000000000000 != 0
-      self.is_ready0         = data[0]&0b0010000000000000 != 0
-      self.is_enabled1       = data[0]&0b0001000000000000 != 0
-      self.is_ready1         = data[0]&0b0000100000000000 != 0
+      self.is_system_enabled        = data[0]&0b1000000000000000 != 0
+      self.is_enabled0              = data[0]&0b0100000000000000 != 0
+      self.is_ready0                = data[0]&0b0010000000000000 != 0
+      self.is_enabled1              = data[0]&0b0001000000000000 != 0
+      self.is_ready1                = data[0]&0b0000100000000000 != 0
+      self.has_index_been_detected0 = data[0]&0b0000010000000000 != 0
+      self.has_index_been_detected1 = data[0]&0b0000001000000000 != 0
+      
       self.error             = data[0]&0b0000000000001111
       self.position0 = data[2] / (1<<24) * 2.0 * pi
       self.position1 = data[3] / (1<<24) * 2.0 * pi
