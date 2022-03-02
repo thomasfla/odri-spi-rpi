@@ -17,7 +17,7 @@ def crc32(buf):
     for _ in range(8):
       crc = crc << 1 if (crc & 0x80000000) == 0 else (crc << 1) ^ 0x104c11db7
   return crc
-  
+
 def checkcrc(buf):
   crc = crc32(buf[:-4])
   if (crc&0xffff == buf[-4]*256+buf[-3] and (crc&0xFFFF0000)>>16 == buf[-2]*256+buf[-1] ): #todo, clean
@@ -26,7 +26,7 @@ def checkcrc(buf):
 
 class SPIuDriver:
   def __init__(self, waitForInit = True, absolutePositionMode = False):
-    
+
     #Configure CS pin
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(25,GPIO.OUT)
@@ -37,7 +37,7 @@ class SPIuDriver:
     self.spi.open(0, 0)
     self.spi.mode=0
     self.spi.max_speed_hz = 8000000
-    
+
     # Allocate all variables
     self.is_system_enabled = 0
     self.error_code = 0
@@ -55,7 +55,7 @@ class SPIuDriver:
     self.has_index_been_detected1 = 0
     self.index_toggle_bit0 = 0
     self.index_toggle_bit1 = 0
-    
+
 
     self.EI1OC = 1 if absolutePositionMode else 0
     self.EI2OC = 1 if absolutePositionMode else 0
@@ -71,7 +71,8 @@ class SPIuDriver:
     self.kp1= 0
     self.kd0= 0
     self.kd1= 0
-  
+    self.timeout = 5
+
     self.error = -1
     #wait for system enable
     if waitForInit:
@@ -79,14 +80,14 @@ class SPIuDriver:
       while(not self.is_ready0):
         self.transfer()
         time.sleep(0.001)
-    print(">> Waiting for index pulse to have absolute position reference, please move the motor manualy")    
+    print(">> Waiting for index pulse to have absolute position reference, please move the motor manualy")
     if absolutePositionMode:
       while(not self.has_index_been_detected0 or not self.has_index_been_detected1):
         self.transfer()
         time.sleep(0.001)
     print ("ready!")
   def transfer(self):
-    
+
     #generate command packet
     ES = 1
     EM1 = 1	
@@ -95,7 +96,7 @@ class SPIuDriver:
     EI1OC = self.EI1OC
     EI2OC	= self.EI2OC
     mode = (ES << 7) | (EM1 << 6) | (EM2<<5)|(EPRE<<4)|(EI1OC<<3)|(EI2OC<<2)
-    timeout = 5
+    timeout = self.timeout
     rawRefPos0 = int(self.refPosition0*(1<<24))
     rawRefPos1 = int(self.refPosition1*(1<<24))
     rawRefVel0 = int(self.refVelocity0*(1<<11)*60.0/(2000*pi))
@@ -129,7 +130,7 @@ class SPIuDriver:
       self.is_ready1                = data[0]&0b0000100000000000 != 0
       self.has_index_been_detected0 = data[0]&0b0000010000000000 != 0
       self.has_index_been_detected1 = data[0]&0b0000001000000000 != 0
-      
+
       self.error             = data[0]&0b0000000000001111
       self.position0 = data[2] / (1<<24) * 2.0 * pi
       self.position1 = data[3] / (1<<24) * 2.0 * pi
@@ -143,7 +144,7 @@ class SPIuDriver:
         raise(Exception(f"Error: sensor frame is corrupted is uDriver powered on?"))
     if (self.error!=0):
         raise(Exception(f"Error from motor driver: Error {self.error}"))
-        
+
   def goto(self,p0,p1):
         p0_start = self.position0
         p1_start = self.position1
@@ -154,16 +155,37 @@ class SPIuDriver:
         for i in range(T):
             goalPosition0 = (i/T) * p0 + (1 - i/T) * p0_start
             goalPosition1 = (i/T) * p1 + (1 - i/T) * p1_start
-            self.transfer() #transfer 
+            self.transfer() #transfer
             self.refCurrent0 = 1.0*(goalPosition0-self.position0)-0.1*self.velocity0
             self.refCurrent1 = 1.0*(goalPosition1-self.position1)-0.1*self.velocity1
             #wait for next control cycle
-            t +=dt 
+            t +=dt
             while(time.perf_counter()-t<dt):
                 pass
-    def stop():
-        pass
-        #todo stop the robot cleanly (send 0 ref, disable timeout)
+  def stop(self):
+        self.EI1OC = 0
+        self.EI2OC = 0
+        self.refPosition0 = 0
+        self.refPosition1= 0
+        self.refVelocity0= 0
+        self.refVelocity1= 0
+        self.refCurrent0= 0
+        self.refCurrent1= 0
+        self.iSatCurrent0= 0
+        self.iSatCurrent1= 0
+        self.kp0= 0
+        self.kp1= 0
+        self.kd0= 0
+        self.kd1= 0
+        self.timeout = 0
+        dt=0.001
+        t = time.perf_counter()
+        for i in range(100):
+            self.transfer() #transfer
+            #wait for next control cycle
+            t +=dt
+            while(time.perf_counter()-t<dt):
+                pass
 
 class PID:
     def __init__(self,Kp,Ki,Kd, sat = 2.0, dt=0.001):
@@ -178,18 +200,16 @@ class PID:
         perr = p_ref-p
         verr = v_ref-v
         self.ierr = self.ierr + perr * self.dt
-        if (self.ierr > self.sat) : 
+        if (self.ierr > self.sat) :
             self.ierr = self.sat
-        if (self.ierr < -self.sat) : 
+        if (self.ierr < -self.sat) :
             self.ierr = -self.sat
         self.u = self.Kp * perr + self.Kd * verr + self.Ki * self.ierr
-        if (self.u > self.sat) : 
+        if (self.u > self.sat) :
             self.u = self.sat
-        if (self.u < -self.sat) : 
+        if (self.u < -self.sat) :
             self.u = -self.sat
         return self.u
 
 
-    
-    
-    
+
