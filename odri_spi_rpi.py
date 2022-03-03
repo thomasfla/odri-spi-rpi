@@ -25,7 +25,7 @@ def checkcrc(buf):
   return False
 
 class SPIuDriver:
-  def __init__(self, waitForInit = True, absolutePositionMode = False):
+  def __init__(self, waitForInit = True, absolutePositionMode = False, offsets=[0.0,0.0]):
 
     #Configure CS pin
     GPIO.setmode(GPIO.BCM)
@@ -56,6 +56,8 @@ class SPIuDriver:
     self.index_toggle_bit0 = 0
     self.index_toggle_bit1 = 0
 
+    self.offset0 = offsets[0]
+    self.offset1 = offsets[1]
 
     self.EI1OC = 1 if absolutePositionMode else 0
     self.EI2OC = 1 if absolutePositionMode else 0
@@ -97,8 +99,8 @@ class SPIuDriver:
     EI2OC	= self.EI2OC
     mode = (ES << 7) | (EM1 << 6) | (EM2<<5)|(EPRE<<4)|(EI1OC<<3)|(EI2OC<<2)
     timeout = self.timeout
-    rawRefPos0 = int(self.refPosition0*(1<<24))
-    rawRefPos1 = int(self.refPosition1*(1<<24))
+    rawRefPos0 = int((self.refPosition0-self.offset0)/(2.*pi)*(1<<24) )
+    rawRefPos1 = int((self.refPosition1-self.offset1)/(2.*pi)*(1<<24))
     rawRefVel0 = int(self.refVelocity0*(1<<11)*60.0/(2000*pi))
     rawRefVel1 = int(self.refVelocity1*(1<<11)*60.0/(2000*pi))
     rawRefIq0 = int(self.refCurrent0*(1<<10))
@@ -132,8 +134,8 @@ class SPIuDriver:
       self.has_index_been_detected1 = data[0]&0b0000001000000000 != 0
 
       self.error             = data[0]&0b0000000000001111
-      self.position0 = data[2] / (1<<24) * 2.0 * pi
-      self.position1 = data[3] / (1<<24) * 2.0 * pi
+      self.position0 = data[2] / (1<<24) * 2.0 * pi + self.offset0
+      self.position1 = data[3] / (1<<24) * 2.0 * pi + self.offset1
       self.velocity0 = data[4] / (1<<11) * 2000*pi/60.0
       self.velocity1 = data[5] / (1<<11) * 2000*pi/60.0
       self.current0 = data[6]  / (1<<10)
@@ -162,6 +164,9 @@ class SPIuDriver:
             t +=dt
             while(time.perf_counter()-t<dt):
                 pass
+        self.refCurrent0 = 0
+        self.refCurrent1 = 0
+        self.transfer()
   def stop(self):
         self.EI1OC = 0
         self.EI2OC = 0
@@ -210,6 +215,5 @@ class PID:
         if (self.u < -self.sat) :
             self.u = -self.sat
         return self.u
-
 
 
