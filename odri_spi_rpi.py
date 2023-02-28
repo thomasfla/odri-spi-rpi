@@ -148,6 +148,11 @@ class SPIuDriver:
         raise(Exception(f"Error from motor driver: Error {self.error}"))
 
   def goto(self,p0,p1):
+        Kp = 3.0
+        Kd = 0.2
+        Ki = 50
+        pid0 = PID(Kp,Ki,Kd)
+        pid1 = PID(Kp,Ki,Kd)
         p0_start = self.position0
         p1_start = self.position1
         eps = 0.01
@@ -158,8 +163,10 @@ class SPIuDriver:
             goalPosition0 = (i/T) * p0 + (1 - i/T) * p0_start
             goalPosition1 = (i/T) * p1 + (1 - i/T) * p1_start
             self.transfer() #transfer
-            self.refCurrent0 = 1.0*(goalPosition0-self.position0)-0.1*self.velocity0
-            self.refCurrent1 = 1.0*(goalPosition1-self.position1)-0.1*self.velocity1
+            #self.refCurrent0 = 1.0*(goalPosition0-self.position0)-0.1*self.velocity0
+            #self.refCurrent1 = 1.0*(goalPosition1-self.position1)-0.1*self.velocity1
+            self.refCurrent0 = pid0.compute(self.position0,self.velocity0,goalPosition0,0.0)
+            self.refCurrent1 = pid1.compute(self.position1,self.velocity1,goalPosition1,0.0)
             #wait for next control cycle
             t +=dt
             while(time.perf_counter()-t<dt):
@@ -215,5 +222,3 @@ class PID:
         if (self.u < -self.sat) :
             self.u = -self.sat
         return self.u
-
-
