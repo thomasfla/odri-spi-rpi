@@ -1,13 +1,11 @@
 #!/usr/bin/python3
 #Thomas Flayols - feb 2022
 import time
-from IPython import embed
-from odri_spi_rpi import *
-import time
+from odri_spi_rpi import SPIuDriver
+from math import pi
 dt = 0.001
 ud = SPIuDriver(absolutePositionMode=True)
 ud.transfer()
-ud.goto(0,0)
 ud.goto(0,0)
 t = time.perf_counter()
 goalPosition = 0.0
