@@ -73,7 +73,7 @@ class SPIuDriver:
     self.kp1= 0
     self.kd0= 0
     self.kd1= 0
-    self.timeout = 5
+    self.timeout = 20
 
     self.error = -1
     #wait for system enable
@@ -82,11 +82,12 @@ class SPIuDriver:
       while(not self.is_ready0):
         self.transfer()
         time.sleep(0.001)
-    print(">> Waiting for index pulse to have absolute position reference, please move the motor manualy")
     if absolutePositionMode:
-      while(not self.has_index_been_detected0 or not self.has_index_been_detected1):
-        self.transfer()
-        time.sleep(0.001)
+      if (not self.has_index_been_detected0 or not self.has_index_been_detected1):
+          print(">> Waiting for index pulse to have absolute position reference, please move the motor manualy")
+          while(not self.has_index_been_detected0 or not self.has_index_been_detected1):
+            self.transfer()
+            time.sleep(0.001)
     print ("ready!")
   def transfer(self):
 
@@ -94,7 +95,7 @@ class SPIuDriver:
     ES = 1
     EM1 = 1	
     EM2	= 1
-    EPRE = 0
+    EPRE = 1
     EI1OC = self.EI1OC
     EI2OC	= self.EI2OC
     mode = (ES << 7) | (EM1 << 6) | (EM2<<5)|(EPRE<<4)|(EI1OC<<3)|(EI2OC<<2)
@@ -146,7 +147,7 @@ class SPIuDriver:
         raise(Exception(f"Error: sensor frame is corrupted is uDriver powered on?"))
     if (self.error!=0):
         raise(Exception(f"Error from motor driver: Error {self.error}"))
-
+    #print(sensorPacket.hex())
   def goto(self,p0,p1):
         Kp = 3.0
         Kd = 0.2
