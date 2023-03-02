@@ -7,7 +7,6 @@ import struct
 import spidev
 import RPi.GPIO as GPIO
 import spidev
-from IPython import embed
 from math import pi
 import time
 def crc32(buf):
@@ -67,8 +66,8 @@ class SPIuDriver:
     self.refVelocity1= 0
     self.refCurrent0= 0
     self.refCurrent1= 0
-    self.iSatCurrent0= 0
-    self.iSatCurrent1= 0
+    self.iSatCurrent0= 5.0
+    self.iSatCurrent1= 5.0
     self.kp0= 0
     self.kp1= 0
     self.kd0= 0
@@ -158,8 +157,8 @@ class SPIuDriver:
     #print(sensorPacket.hex())
   def goto(self,p0,p1):
         Kp = 3.0
-        Kd = 0.2
-        Ki = 50
+        Kd = 0.06
+        Ki = 0*50
         pid0 = PID(Kp,Ki,Kd)
         pid1 = PID(Kp,Ki,Kd)
         p0_start = self.position0
