@@ -84,9 +84,17 @@ class SPIuDriver:
         time.sleep(0.001)
     if absolutePositionMode:
       if (not self.has_index_been_detected0 or not self.has_index_been_detected1):
-          print(">> Waiting for index pulse to have absolute position reference, please move the motor manualy")
+          print(">> Waiting for index pulse to have absolute position reference, please move the motors manualy")
+          displayedIndex0 = False
+          displayedIndex1 = False
           while(not self.has_index_been_detected0 or not self.has_index_been_detected1):
             self.transfer()
+            if self.has_index_been_detected0 == True and displayedIndex0 == False:
+                print (" >> Index 0 detected !")
+                displayedIndex0 = True
+            if self.has_index_been_detected1 == True and displayedIndex1 == False:
+                print (" >> Index 1 detected !")
+                displayedIndex1 = True
             time.sleep(0.001)
     print ("ready!")
   def transfer(self):
