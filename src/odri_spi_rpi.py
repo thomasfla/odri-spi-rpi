@@ -3,12 +3,27 @@
 #Thomas Flayols - feb 2022
 #https://github.com/thomasfla/odri-spi-rpi
 #https://github.com/open-dynamic-robot-initiative/master-board/blob/master/documentation/BLMC_%C2%B5Driver_SPI_interface.md
+import time
 import struct
-import spidev
+from math import pi
+
 import RPi.GPIO as GPIO
 import spidev
-from math import pi
-import time
+
+
+CS_PIN = 25
+ERROR_DESCRIPTIONS = {
+  0: "No error",
+  1: "Encoder_1 error too high",
+  2: "Timeout for receiving cmd exceeded",
+  3: "Motor temperature reached critical value",
+  4: "Unused error",
+  5: "Position roll-over occurred",
+  6: "Encoder_2 error",
+  7: "Motor DRV nFault error",
+}
+
+
 def crc32(buf):
   crc=0xffffffff
   for val in buf:
@@ -19,17 +34,28 @@ def crc32(buf):
 
 def checkcrc(buf):
   crc = crc32(buf[:-4])
-  if (crc&0xffff == buf[-4]*256+buf[-3] and (crc&0xFFFF0000)>>16 == buf[-2]*256+buf[-1] ): #todo, clean
-    return True
-  return False
+  # Sensor frame returns CRC with low/high 16-bit words swapped vs command frame.
+  low_word = buf[-4] * 256 + buf[-3]
+  high_word = buf[-2] * 256 + buf[-1]
+  return (crc & 0xffff == low_word and (crc & 0xFFFF0000) >> 16 == high_word)
+
+
+def get_error_description(error_code):
+  return ERROR_DESCRIPTIONS.get(error_code, f"Unknown error code {error_code}")
 
 class SPIuDriver:
-  def __init__(self, waitForInit = True, absolutePositionMode = False, offsets=[0.0,0.0]):
+  def __init__(self, waitForInit = True, absolutePositionMode = False, offsets=None):
+
+    if offsets is None:
+      offsets = (0.0, 0.0)
+    if len(offsets) != 2:
+      raise ValueError("offsets must contain two values: [offset0, offset1]")
+    self._closed = False
 
     #Configure CS pin
     GPIO.setmode(GPIO.BCM)
-    GPIO.setup(25,GPIO.OUT)
-    GPIO.output(25,0)
+    GPIO.setup(CS_PIN,GPIO.OUT)
+    GPIO.output(CS_PIN,0)
 
     #Initialise SPI
     self.spi = spidev.SpiDev()
@@ -77,13 +103,13 @@ class SPIuDriver:
     self.error = -1
     #wait for system enable
     if waitForInit:
-      print(">> Calibrating motor, please wait")
-      while(not self.is_ready0):
+      print(">> Calibrating motors, please wait")
+      while(not self.is_ready0 or not self.is_ready1):
         self.transfer()
         time.sleep(0.001)
     if absolutePositionMode:
       if (not self.has_index_been_detected0 or not self.has_index_been_detected1):
-          print(">> Waiting for index pulse to have absolute position reference, please move the motors manualy")
+          print(">> Waiting for index pulse to have absolute position reference, please move the motors manually")
           displayedIndex0 = False
           displayedIndex1 = False
           while(not self.has_index_been_detected0 or not self.has_index_been_detected1):
@@ -125,9 +151,9 @@ class SPIuDriver:
     commandPacket[-3]=(crc>>16)&0xff
     commandPacket[-2]=(crc>>8)&0xff
     commandPacket[-1]=(crc)&0xff
-    GPIO.output(25,0) #enable CS
+    GPIO.output(CS_PIN,0) #enable CS
     sensorPacket = bytearray(self.spi.xfer(commandPacket))
-    GPIO.output(25,1) #disable CS
+    GPIO.output(CS_PIN,1) #disable CS
     #print(commandPacket.hex(),checkcrc(commandPacket))
     #print(sensorPacket.hex(),checkcrc(sensorPacket))
     if checkcrc(sensorPacket):
@@ -141,7 +167,8 @@ class SPIuDriver:
       self.has_index_been_detected0 = data[0]&0b0000010000000000 != 0
       self.has_index_been_detected1 = data[0]&0b0000001000000000 != 0
 
-      self.error             = data[0]&0b0000000000001111
+      self.error = data[0]&0b0000000000001111
+      self.error_code = self.error
       self.position0 = data[2] / (1<<24) * 2.0 * pi + self.offset0
       self.position1 = data[3] / (1<<24) * 2.0 * pi + self.offset1
       self.velocity0 = data[4] / (1<<11) * 2000*pi/60.0
@@ -151,9 +178,9 @@ class SPIuDriver:
       #print("velocity =", self.velocity0)
       #print("cur =", self.current0)
     else:
-        raise(Exception(f"Error: sensor frame is corrupted is uDriver powered on?"))
+        raise RuntimeError("Error: sensor frame is corrupted, is uDriver powered on?")
     if (self.error!=0):
-        raise(Exception(f"Error from motor driver: Error {self.error}"))
+        raise RuntimeError(f"Error from motor driver ({self.error}): {get_error_description(self.error)}")
     #print(sensorPacket.hex())
   def goto(self,p0,p1):
         Kp = 3.0
@@ -163,7 +190,6 @@ class SPIuDriver:
         pid1 = PID(Kp,Ki,Kd)
         p0_start = self.position0
         p1_start = self.position1
-        eps = 0.01
         dt=0.001
         T=1000
         t = time.perf_counter()
@@ -206,6 +232,21 @@ class SPIuDriver:
             t +=dt
             while(time.perf_counter()-t<dt):
                 pass
+  def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self.spi.close()
+        finally:
+            GPIO.cleanup(CS_PIN)
+
+  def __enter__(self):
+        return self
+
+  def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+        return False
 
 class PID:
     def __init__(self,Kp,Ki,Kd, sat = 2.0, dt=0.001):

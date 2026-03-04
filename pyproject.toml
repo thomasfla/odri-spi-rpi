@@ -4,7 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "odri_spi_rpi"
-version = "0.0.1"
+version = "0.0.2"
+dependencies = [
+    "spidev",
+    "RPi.GPIO"
+]
 authors = [
   { name="Thomas Flayols", email="thomas.flayols@gmail.com" },
 ]
