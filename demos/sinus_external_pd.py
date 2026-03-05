@@ -16,7 +16,7 @@ KD = 0.05
 def main():
     driver = SPIuDriver(absolutePositionMode=True)
 
-    # Local PD (current command) only.
+    # External PD (computed in this Python process, sent as current commands).
     driver.kp0 = 0.0
     driver.kp1 = 0.0
     driver.kd0 = 0.0

@@ -43,6 +43,73 @@ def checkcrc(buf):
 def get_error_description(error_code):
   return ERROR_DESCRIPTIONS.get(error_code, f"Unknown error code {error_code}")
 
+
+def build_trapezoidal_profile(distance, max_velocity, max_acceleration):
+  if max_velocity <= 0.0:
+    raise ValueError("max_velocity must be > 0")
+  if max_acceleration <= 0.0:
+    raise ValueError("max_acceleration must be > 0")
+
+  sign = 1.0 if distance >= 0.0 else -1.0
+  distance_abs = abs(distance)
+  if distance_abs == 0.0:
+    return {
+      "sign": sign,
+      "distance": 0.0,
+      "t_acc": 0.0,
+      "t_cruise": 0.0,
+      "t_total": 0.0,
+      "v_peak": 0.0,
+    }
+
+  t_acc = max_velocity / max_acceleration
+  d_acc = 0.5 * max_acceleration * t_acc * t_acc
+
+  # Triangular profile if we cannot reach max_velocity.
+  if 2.0 * d_acc >= distance_abs:
+    t_acc = (distance_abs / max_acceleration) ** 0.5
+    t_cruise = 0.0
+    v_peak = max_acceleration * t_acc
+  else:
+    t_cruise = (distance_abs - 2.0 * d_acc) / max_velocity
+    v_peak = max_velocity
+
+  return {
+    "sign": sign,
+    "distance": distance_abs,
+    "t_acc": t_acc,
+    "t_cruise": t_cruise,
+    "t_total": 2.0 * t_acc + t_cruise,
+    "v_peak": v_peak,
+  }
+
+
+def sample_trapezoidal_profile(profile, t, max_acceleration):
+  if t <= 0.0 or profile["distance"] == 0.0:
+    return 0.0, 0.0
+
+  t_acc = profile["t_acc"]
+  t_cruise = profile["t_cruise"]
+  t_total = profile["t_total"]
+  v_peak = profile["v_peak"]
+  d_acc = 0.5 * max_acceleration * t_acc * t_acc
+
+  if t < t_acc:
+    pos = 0.5 * max_acceleration * t * t
+    vel = max_acceleration * t
+  elif t < (t_acc + t_cruise):
+    pos = d_acc + v_peak * (t - t_acc)
+    vel = v_peak
+  elif t < t_total:
+    td = t - t_acc - t_cruise
+    pos = d_acc + v_peak * t_cruise + v_peak * td - 0.5 * max_acceleration * td * td
+    vel = v_peak - max_acceleration * td
+  else:
+    pos = profile["distance"]
+    vel = 0.0
+
+  return profile["sign"] * pos, profile["sign"] * vel
+
 class SPIuDriver:
   def __init__(self, waitForInit = True, absolutePositionMode = False, offsets=None):
 
@@ -182,32 +249,62 @@ class SPIuDriver:
     if (self.error!=0):
         raise RuntimeError(f"Error from motor driver ({self.error}): {get_error_description(self.error)}")
     #print(sensorPacket.hex())
-  def goto(self,p0,p1):
-        Kp = 3.0
-        Kd = 0.06
-        Ki = 0*50
-        pid0 = PID(Kp,Ki,Kd)
-        pid1 = PID(Kp,Ki,Kd)
-        p0_start = self.position0
-        p1_start = self.position1
-        dt=0.001
-        T=1000
-        t = time.perf_counter()
-        for i in range(T):
-            goalPosition0 = (i/T) * p0 + (1 - i/T) * p0_start
-            goalPosition1 = (i/T) * p1 + (1 - i/T) * p1_start
-            self.transfer() #transfer
-            #self.refCurrent0 = 1.0*(goalPosition0-self.position0)-0.1*self.velocity0
-            #self.refCurrent1 = 1.0*(goalPosition1-self.position1)-0.1*self.velocity1
-            self.refCurrent0 = pid0.compute(self.position0,self.velocity0,goalPosition0,0.0)
-            self.refCurrent1 = pid1.compute(self.position1,self.velocity1,goalPosition1,0.0)
-            #wait for next control cycle
-            t +=dt
-            while(time.perf_counter()-t<dt):
-                pass
-        self.refCurrent0 = 0
-        self.refCurrent1 = 0
-        self.transfer()
+  def goto(self, p0, p1, max_velocity=6.0, max_acceleration=20.0, kp=3.0, kd=0.06, dt=0.001):
+        """Move both motors to targets using onboard PD and trapezoidal profiles."""
+        start0 = self.position0
+        start1 = self.position1
+        distance0 = p0 - start0
+        distance1 = p1 - start1
+
+        profile0 = build_trapezoidal_profile(distance0, max_velocity, max_acceleration)
+        profile1 = build_trapezoidal_profile(distance1, max_velocity, max_acceleration)
+        motion_time = max(profile0["t_total"], profile1["t_total"])
+
+        prev_kp0 = self.kp0
+        prev_kp1 = self.kp1
+        prev_kd0 = self.kd0
+        prev_kd1 = self.kd1
+        self.kp0 = kp
+        self.kp1 = kp
+        self.kd0 = kd
+        self.kd1 = kd
+        self.refCurrent0 = 0.0
+        self.refCurrent1 = 0.0
+
+        try:
+            t0 = time.perf_counter()
+            next_t = t0
+            while True:
+                elapsed = time.perf_counter() - t0
+                rel_pos0, rel_vel0 = sample_trapezoidal_profile(profile0, elapsed, max_acceleration)
+                rel_pos1, rel_vel1 = sample_trapezoidal_profile(profile1, elapsed, max_acceleration)
+                self.refPosition0 = start0 + rel_pos0
+                self.refPosition1 = start1 + rel_pos1
+                self.refVelocity0 = rel_vel0
+                self.refVelocity1 = rel_vel1
+                self.refCurrent0 = 0.0
+                self.refCurrent1 = 0.0
+                self.transfer()
+
+                if elapsed >= motion_time:
+                    break
+
+                next_t += dt
+                while time.perf_counter() < next_t:
+                    pass
+
+            self.refPosition0 = p0
+            self.refPosition1 = p1
+            self.refVelocity0 = 0.0
+            self.refVelocity1 = 0.0
+            self.refCurrent0 = 0.0
+            self.refCurrent1 = 0.0
+            self.transfer()
+        finally:
+            self.kp0 = prev_kp0
+            self.kp1 = prev_kp1
+            self.kd0 = prev_kd0
+            self.kd1 = prev_kd1
   def stop(self):
         self.EI1OC = 0
         self.EI2OC = 0

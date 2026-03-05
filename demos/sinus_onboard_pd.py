@@ -16,7 +16,7 @@ KD = 0.05
 def main():
     driver = SPIuDriver(absolutePositionMode=True)
 
-    # Remote PD (motor driver side).
+    # Onboard PD (computed on motor driver side).
     driver.kp0 = KP
     driver.kp1 = KP
     driver.kd0 = KD
