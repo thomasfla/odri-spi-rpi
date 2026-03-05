@@ -188,6 +188,7 @@ class SPIuDriver:
                 print (" >> Index 1 detected !")
                 displayedIndex1 = True
             time.sleep(0.001)
+    self.transfer()
     print ("ready!")
   def transfer(self):
 
